@@ -16,46 +16,102 @@ Ce dépôt contient **tout le code nécessaire** pour intégrer Stripe Payment E
 
 ```
 striipeflutterflow/
-├── README.md                           # Ce fichier
-├── firebase-functions/                 # Backend Firebase
+├── README.md                             # Ce fichier
+│
+├── flutter-flow-cloud-functions/         # ⭐ RECOMMANDÉ pour Flutter Flow
+│   ├── createPaymentIntent.js           # Functions à copier dans Flutter Flow
+│   ├── createSubscription.js
+│   ├── confirmPayment.js
+│   ├── cancelSubscription.js
+│   ├── stripeWebhook.js
+│   ├── package.json                     # Dépendances npm
+│   ├── FLUTTER-FLOW-DEPLOYMENT.md       # Guide de déploiement Flutter Flow
+│   └── README.md
+│
+├── firebase-functions/                   # Alternative: Déploiement CLI
 │   ├── package.json
-│   ├── index.js                       # Cloud Functions
-│   └── .env.example                   # Variables d'environnement
-├── flutter-flow/                       # Code pour Flutter Flow
+│   ├── index.js                         # Toutes les functions en un fichier
+│   ├── .env.example
+│   └── README.md
+│
+├── flutter-flow/                         # Code pour Flutter Flow
 │   ├── custom-widgets/
-│   │   └── stripe_payment_element.dart # Widget Payment Element
+│   │   └── stripe_payment_element.dart  # Widget Payment Element
 │   ├── custom-actions/
-│   │   └── process_stripe_payment.dart # Action de paiement
-│   └── README.md                      # Guide d'intégration Flutter Flow
+│   │   ├── create_payment_intent.dart   # Actions de paiement
+│   │   ├── create_subscription.dart
+│   │   └── confirm_payment_status.dart
+│   └── README.md                        # Guide d'intégration
+│
 ├── firestore/
-│   └── firestore.rules                # Règles de sécurité Firestore
+│   └── firestore.rules                  # Règles de sécurité Firestore
+│
 └── docs/
-    ├── SETUP.md                       # Configuration complète
-    ├── STRIPE-CONFIGURATION.md        # Configuration Stripe
-    └── FLUTTER-FLOW-GUIDE.md          # Guide Flutter Flow détaillé
+    ├── SETUP.md                         # Configuration complète
+    ├── STRIPE-CONFIGURATION.md          # Configuration Stripe
+    ├── FLUTTER-FLOW-GUIDE.md            # Guide Flutter Flow détaillé
+    ├── QUICK-REFERENCE.md               # Référence rapide
+    └── TROUBLESHOOTING.md               # Dépannage
 ```
 
 ## 🚀 Démarrage rapide
+
+### Choix du mode de déploiement
+
+**Option A: Via Flutter Flow** ⭐ **RECOMMANDÉ** - Tout dans l'interface
+- Déploiement en 1 clic depuis Flutter Flow
+- Pas besoin de Firebase CLI
+- Guide: [flutter-flow-cloud-functions/FLUTTER-FLOW-DEPLOYMENT.md](flutter-flow-cloud-functions/FLUTTER-FLOW-DEPLOYMENT.md)
+
+**Option B: Via ligne de commande** - Déploiement traditionnel
+- Nécessite Firebase CLI sur votre machine
+- Plus de contrôle technique
+- Guide: [docs/SETUP.md](docs/SETUP.md)
+
+---
+
+### Option A: Déploiement Flutter Flow (RECOMMANDÉ)
 
 ### 1. Configuration Stripe
 1. Créez un compte sur [stripe.com](https://stripe.com)
 2. Récupérez vos clés API (test et production)
 3. Voir [docs/STRIPE-CONFIGURATION.md](docs/STRIPE-CONFIGURATION.md)
 
-### 2. Configuration Firebase Functions
+### 2. Cloud Functions dans Flutter Flow
+1. Ouvrez **Cloud Functions** dans Flutter Flow
+2. Ajoutez `stripe: ^14.10.0` dans le **package.json**
+3. Pour chaque function dans `flutter-flow-cloud-functions/`:
+   - Créez une nouvelle Cloud Function
+   - Copiez/collez le code
+   - Configurez les paramètres (memory, timeout, inputs/outputs)
+   - **Deploy**
+4. Guide détaillé: [flutter-flow-cloud-functions/FLUTTER-FLOW-DEPLOYMENT.md](flutter-flow-cloud-functions/FLUTTER-FLOW-DEPLOYMENT.md)
+
+### 3. Custom Widgets & Actions
+1. Ajoutez le **Custom Widget** `StripePaymentElement`
+2. Ajoutez les 3 **Custom Actions** (create_payment_intent, etc.)
+3. Configurez vos App State variables
+4. Voir [docs/FLUTTER-FLOW-GUIDE.md](docs/FLUTTER-FLOW-GUIDE.md)
+
+---
+
+### Option B: Déploiement CLI (Alternative)
+
+### 1. Configuration Stripe
+Même que l'Option A
+
+### 2. Déploiement Firebase Functions via CLI
 ```bash
 cd firebase-functions
 npm install
-# Configurez vos variables d'environnement
-firebase functions:config:set stripe.secret_key="sk_test_..." stripe.publishable_key="pk_test_..."
+firebase functions:config:set \
+  stripe.secret_key="sk_test_..." \
+  stripe.publishable_key="pk_test_..."
 firebase deploy --only functions
 ```
 
-### 3. Intégration dans Flutter Flow
-1. Ajoutez le **Custom Widget** `StripePaymentElement`
-2. Ajoutez la **Custom Action** `processStripePayment`
-3. Configurez votre page de paiement
-4. Voir [docs/FLUTTER-FLOW-GUIDE.md](docs/FLUTTER-FLOW-GUIDE.md)
+### 3. Intégration Flutter Flow
+Même que l'Option A
 
 ## 📚 Documentation complète
 
