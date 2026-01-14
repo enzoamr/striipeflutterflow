@@ -1,0 +1,42 @@
+# Fichiers de configuration avec clés sensibles
+.env
+.env.local
+firebase-functions/.env
+
+# Logs
+*.log
+logs/
+firebase-debug.log
+firestore-debug.log
+
+# Node modules
+node_modules/
+firebase-functions/node_modules/
+
+# Firebase
+.firebase/
+.firebaserc
+
+# Clés et secrets
+*.pem
+*.key
+service-account-key.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+.cache/
+
+# Stripe
+stripe-*.json

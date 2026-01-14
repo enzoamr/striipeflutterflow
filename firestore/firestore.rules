@@ -1,0 +1,79 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Fonction helper pour vérifier si l'utilisateur est authentifié
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Fonction helper pour vérifier si l'utilisateur est le propriétaire
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Collection: payment_intents
+    // Stocke les informations sur les paiements uniques
+    match /payment_intents/{paymentIntentId} {
+      // Lecture: uniquement le propriétaire peut lire ses propres paiements
+      allow read: if isAuthenticated() &&
+                     (resource.data.firebaseUid == request.auth.uid ||
+                      resource.data.customerEmail == request.auth.token.email);
+
+      // Création: uniquement via Cloud Functions (pas d'accès direct)
+      allow create: if false;
+
+      // Mise à jour: uniquement via Cloud Functions
+      allow update: if false;
+
+      // Suppression: interdite
+      allow delete: if false;
+    }
+
+    // Collection: subscriptions
+    // Stocke les informations sur les abonnements récurrents
+    match /subscriptions/{subscriptionId} {
+      // Lecture: uniquement le propriétaire peut lire ses propres abonnements
+      allow read: if isAuthenticated() &&
+                     (resource.data.firebaseUid == request.auth.uid ||
+                      resource.data.customerEmail == request.auth.token.email);
+
+      // Création: uniquement via Cloud Functions
+      allow create: if false;
+
+      // Mise à jour: uniquement via Cloud Functions
+      allow update: if false;
+
+      // Suppression: interdite
+      allow delete: if false;
+    }
+
+    // Collection: orders (exemple pour vos commandes)
+    // Vous pouvez créer cette collection dans Flutter Flow après un paiement réussi
+    match /orders/{orderId} {
+      // Lecture: uniquement le propriétaire
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+      // Création: l'utilisateur peut créer ses propres commandes
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+
+      // Mise à jour: uniquement le propriétaire
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+      // Suppression: interdite (garder l'historique)
+      allow delete: if false;
+    }
+
+    // Collection: customers (optionnel)
+    // Pour stocker des infos clients supplémentaires
+    match /customers/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+
+    // Règle par défaut: tout refuser
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
