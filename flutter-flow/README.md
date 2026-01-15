@@ -5,12 +5,32 @@ Ce dossier contient tous les Custom Widgets et Custom Actions à ajouter dans vo
 ## 📦 Contenu
 
 ### Custom Widgets
-- **stripe_payment_element.dart** - Widget pour afficher le formulaire de paiement Stripe
+
+#### 🔹 stripe_payment_element.dart (RECOMMANDÉ)
+Widget standard avec bouton intégré personnalisable.
+- ✅ Simple à utiliser
+- ✅ Bouton inclus avec texte et couleur personnalisables
+- ✅ Parfait pour 95% des cas d'usage
+
+#### 🔸 stripe_payment_element_with_js_bridge.dart (Avancé)
+Version avec support de bouton externe Flutter Flow.
+- ✅ Même fonctionnalités que la version standard
+- ✅ Permet de cacher le bouton intégré (`hideButton: true`)
+- ✅ Expose une fonction JavaScript pour déclencher le paiement
+- ✅ Utilisez avec la Custom Action `trigger_stripe_payment`
+- 📚 Documentation: [docs/EXTERNAL-BUTTON-GUIDE.md](../docs/EXTERNAL-BUTTON-GUIDE.md)
 
 ### Custom Actions
+
+#### Actions principales
 - **create_payment_intent.dart** - Créer un paiement unique
 - **create_subscription.dart** - Créer un abonnement récurrent
 - **confirm_payment_status.dart** - Vérifier le statut d'un paiement
+
+#### Action avancée
+- **trigger_stripe_payment.dart** - Déclencher le paiement depuis un bouton Flutter Flow externe
+  - À utiliser avec `stripe_payment_element_with_js_bridge.dart`
+  - Permet de placer votre bouton de paiement n'importe où sur la page
 
 ## 🚀 Installation dans Flutter Flow
 
