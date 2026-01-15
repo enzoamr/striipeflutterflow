@@ -212,36 +212,56 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
     final el = html.document.querySelector(_containerSelector);
     if (el == null) return;
 
-    // ✨ FIX: Ne mesure QUE si l'élément est visible dans le viewport
-    if (!_isElementVisibleInViewport(el)) {
-      _log('⏸️ Element not visible in viewport, keeping last height: $_measuredElementHeight');
-      return; // ✅ Garde la dernière hauteur valide au lieu de mesurer 0px
-    }
+    // ✅ Toujours utiliser scrollHeight en priorité (plus fiable que getBoundingClientRect)
+    double h = 0.0;
 
-    final rect = el.getBoundingClientRect();
-    double h = rect.height.isFinite ? rect.height.toDouble() : 0.0;
-
-    // fallback scrollHeight
     try {
+      // scrollHeight est plus fiable car il mesure la hauteur réelle du contenu
+      // même si l'élément est partiellement hors viewport
       final sh = (el as dynamic).scrollHeight;
-      if (sh is num && sh.toDouble() > h) h = sh.toDouble();
+      if (sh is num && sh > 0) {
+        h = sh.toDouble();
+      }
     } catch (_) {}
 
-    // ✅ Si on obtient quand même 0, on ignore (garde la dernière hauteur)
+    // Fallback sur getBoundingClientRect si scrollHeight échoue
     if (h <= 0) {
-      _log('⚠️ Measured height is 0, ignoring');
+      final rect = el.getBoundingClientRect();
+      h = rect.height.isFinite ? rect.height.toDouble() : 0.0;
+    }
+
+    // ✅ Si on obtient 0, on ignore (garde la dernière hauteur)
+    if (h <= 0) {
+      _log('⚠️ Measured height is 0, ignoring (keeping: $_measuredElementHeight)');
       return;
     }
 
     // ✅ clamp + marge pour éviter coupure bas
-    final next = math.min(_maxH, math.max(_minH, h + 8));
+    final measured = math.min(_maxH, math.max(_minH, h + 8));
 
     if (!mounted) return;
 
-    if (_measuredElementHeight == null ||
-        (next - _measuredElementHeight!).abs() > 6) {
-      _log('✅ height update -> $next (was: $_measuredElementHeight)');
-      setState(() => _measuredElementHeight = next);
+    // ✨ FIX SCROLL: Logique de hauteur "non-diminuante"
+    // On autorise uniquement les AUGMENTATIONS ou les petites diminutions (< 10px)
+    // pour éviter que le widget collapse quand il est partiellement hors viewport
+    if (_measuredElementHeight == null) {
+      // Première mesure: on accepte
+      _log('✅ Initial height -> $measured');
+      setState(() => _measuredElementHeight = measured);
+    } else if (measured > _measuredElementHeight!) {
+      // La hauteur AUGMENTE: toujours OK (contenu qui s'agrandit)
+      if ((measured - _measuredElementHeight!).abs() > 6) {
+        _log('✅ Height increased -> $measured (was: $_measuredElementHeight)');
+        setState(() => _measuredElementHeight = measured);
+      }
+    } else if ((_measuredElementHeight! - measured) <= 10) {
+      // Petite diminution (< 10px): probablement une variation normale de mesure
+      _log('✅ Small height change -> $measured (was: $_measuredElementHeight)');
+      setState(() => _measuredElementHeight = measured);
+    } else {
+      // Grande diminution (> 10px): probablement partiellement hors viewport, on ignore
+      _log('⏸️ Height decrease > 10px ignored: measured=$measured, keeping=$_measuredElementHeight');
+      // On ne fait rien: garde la hauteur actuelle
     }
   }
 
