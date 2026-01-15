@@ -19,35 +19,26 @@ import 'dart:math' as math;
 // ✅ FIX: platformViewRegistry est maintenant dans dart:ui_web (Flutter Web récent)
 import 'dart:ui_web' as ui_web;
 
-/// ✨ VERSION AVEC JAVASCRIPT BRIDGE ✨
+/// 🔧 VERSION FIXÉE: Problème de scroll résolu
 ///
-/// Cette version est identique à stripe_payment_element.dart
-/// mais ajoute la possibilité d'utiliser un bouton externe Flutter Flow
-///
-/// NOUVEAUTÉS:
-/// - hideButton: bool → Cache le bouton intégré si true
-/// - Expose une fonction JavaScript 'triggerStripePayment' pour déclencher le paiement depuis l'extérieur
-/// - Utilisez avec la Custom Action: trigger_stripe_payment.dart
-///
-/// TOUTES LES AUTRES FONCTIONNALITÉS SONT IDENTIQUES:
-/// - ResizeObserver pour hauteur dynamique
-/// - Auto-height management
-/// - ClipRect pour éviter débordement
-/// - Gestion 3D Secure
-/// - etc.
+/// Corrections appliquées:
+/// - RepaintBoundary pour isoler le rendu
+/// - Protection contre mesures infinies
+/// - Désactivation temporaire ResizeObserver pendant scroll
+/// - Guards dans _measureHeightNow
+/// - Hauteur fixe par défaut pour éviter les problèmes
 class StripePaymentElement extends StatefulWidget {
   const StripePaymentElement({
     Key? key,
     this.width,
-    this.height, // si null => auto-height
-    this.maxHeight, // ✅ optionnel pour éviter des hauteurs énormes
+    this.height, // RECOMMANDÉ: Fournir une hauteur fixe (ex: 400.0)
+    this.maxHeight,
     required this.stripePublishableKey,
     required this.clientSecret,
     this.onPaymentSuccess,
     this.onPaymentError,
     this.buttonText = 'Payer',
     this.buttonColor = const Color(0xFF0570DE),
-    this.hideButton = false, // ✨ NOUVEAU: Cache le bouton intégré
   }) : super(key: key);
 
   final double? width;
@@ -60,7 +51,6 @@ class StripePaymentElement extends StatefulWidget {
   final Future<dynamic> Function(String error)? onPaymentError;
   final String buttonText;
   final Color buttonColor;
-  final bool hideButton; // ✨ NOUVEAU
 
   @override
   _StripePaymentElementState createState() => _StripePaymentElementState();
@@ -78,7 +68,7 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
   dynamic _resizeObserver;
   dynamic _paymentElement;
 
-  // 🔧 FIX: Protection contre boucles infinies lors du scroll
+  // 🔧 FIX: Protection contre boucles infinies
   int _measureAttempts = 0;
   DateTime? _lastMeasureTime;
   bool _isMeasuring = false;
@@ -86,15 +76,13 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
   String get _containerId => 'payment-element-container-$viewId';
   String get _containerSelector => '#$_containerId';
 
-  // --- Helpers ---
   void _log(String msg) {
     // ignore: avoid_print
     print('[StripePaymentElement][$viewId] $msg');
   }
 
-  double get _minH => 220.0; // ✅ minimum visuel réaliste
-  double get _maxH =>
-      widget.maxHeight ?? 720.0; // ✅ max pour éviter les délires
+  double get _minH => 220.0;
+  double get _maxH => widget.maxHeight ?? 720.0;
 
   @override
   void initState() {
@@ -115,7 +103,6 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
           ..id = _containerId
           ..style.width = '100%'
           ..style.minHeight = '1px'
-          // ✅ Empêche le HTML de déborder visuellement
           ..style.overflow = 'hidden'
           ..style.boxSizing = 'border-box';
 
@@ -183,7 +170,7 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
 
     _measureDebounce?.cancel();
     _measureDebounce =
-        Timer(const Duration(milliseconds: 150), _measureHeightNow); // Plus long pour éviter spam
+        Timer(const Duration(milliseconds: 150), _measureHeightNow); // Plus long debounce
   }
 
   void _measureHeightNow() {
@@ -225,7 +212,7 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
         if (sh is num && sh.toDouble() > h) h = sh.toDouble();
       } catch (_) {}
 
-      // ✅ clamp + marge pour éviter coupure bas
+      // Clamp
       final next = math.min(_maxH, math.max(_minH, h + 8));
 
       // Ne mettre à jour que si changement significatif (réduit les updates inutiles)
@@ -290,14 +277,7 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
         js.context['elementsInstance_$viewId'] = elements;
         _paymentElement = paymentElement;
 
-        // ✨ JAVASCRIPT BRIDGE: Exposer la fonction de paiement
-        // Permet d'appeler _handlePayment() depuis un bouton externe Flutter Flow
-        js.context['triggerStripePayment'] = js.allowInterop(() {
-          _handlePayment();
-        });
-        _log('✅ JavaScript Bridge exposé: triggerStripePayment()');
-
-        // 🔧 FIX: Mesures initiales avec protection (seulement si auto-height)
+        // 🔧 FIX: Mesures initiales avec protection
         if (widget.height == null) {
           Future.delayed(const Duration(milliseconds: 300), _measureHeightNow);
           Future.delayed(const Duration(milliseconds: 600), _measureHeightNow);
@@ -351,8 +331,6 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
                 '#${widget.buttonColor.value.toRadixString(16).substring(2)}',
           }
         },
-        // ✅ optionnel: désactiver Link côté UI
-        // 'link': 'never',
       });
 
       final elements = stripe.callMethod('elements', [options]);
@@ -460,65 +438,62 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
 
   @override
   Widget build(BuildContext context) {
-    // 🔧 FIX: Utiliser hauteur fixe de préférence, ou 400 par défaut
+    // 🔧 FIX: Utiliser hauteur fixe de préférence
     final double elementHeight = widget.height ??
-                                 (_measuredElementHeight ?? 400.0);
+                                 (_measuredElementHeight ?? 400.0); // 400 par défaut
 
-    // 🔧 FIX: RepaintBoundary pour isoler le rendu et éviter crashes au scroll
+    // 🔧 FIX: RepaintBoundary pour isoler le rendu
     return RepaintBoundary(
       child: ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: widget.width,
-        // ✅ si ton parent ne contraint pas, au moins on empêche de déborder visuellement
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey.shade300),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // ✅ IMPORTANT: on clippe aussi la partie HTML
-            ClipRect(
-              child: SizedBox(
-                height: elementHeight,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: HtmlElementView(viewType: viewId),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: widget.width,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Payment Element avec hauteur contrôlée
+              ClipRect(
+                child: SizedBox(
+                  height: elementHeight,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: HtmlElementView(viewType: viewId),
+                  ),
                 ),
               ),
-            ),
 
-            if (_errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.red.shade200),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.error_outline,
-                          color: Colors.red.shade700, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _errorMessage!,
-                          style: TextStyle(
-                              color: Colors.red.shade700, fontSize: 14),
+              if (_errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.red.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.error_outline,
+                            color: Colors.red.shade700, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _errorMessage!,
+                            style: TextStyle(
+                                color: Colors.red.shade700, fontSize: 14),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
 
-            // ✨ NOUVEAU: Bouton visible seulement si hideButton = false
-            if (!widget.hideButton)
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: SizedBox(
@@ -552,35 +527,11 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
                   ),
                 ),
               ),
-
-            // ✨ NOUVEAU: Indicateur de chargement si bouton caché
-            if (widget.hideButton && _isProcessing)
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Traitement du paiement...',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-    ); // Ferme RepaintBoundary
+    );
   }
 
   @override
@@ -590,7 +541,6 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
 
     js.context.deleteProperty('stripeInstance_$viewId');
     js.context.deleteProperty('elementsInstance_$viewId');
-    js.context.deleteProperty('triggerStripePayment'); // ✨ Nettoyage JS bridge
 
     try {
       _paymentElement?.callMethod('off', ['change']);
