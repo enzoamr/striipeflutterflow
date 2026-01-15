@@ -1,7 +1,9 @@
 // Automatic FlutterFlow imports
+import '/backend/backend.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
-import '/flutter_flow/custom_functions.dart';
+import '/custom_code/actions/index.dart'; // Imports other custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
 import 'package:flutter/material.dart';
 // Begin custom action code
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
@@ -25,7 +27,6 @@ import 'package:cloud_functions/cloud_functions.dart';
 /// 1. Après que le widget de paiement a terminé
 /// 2. Appelez cette action pour confirmer le statut
 /// 3. En fonction du résultat, créez votre commande dans Firestore
-
 Future<dynamic> confirmPaymentStatus(String paymentIntentId) async {
   try {
     if (paymentIntentId.isEmpty) {

@@ -1,86 +1,92 @@
 // Automatic FlutterFlow imports
+import '/backend/backend.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
-import '/flutter_flow/custom_functions.dart';
+import '/custom_code/actions/index.dart'; // Imports other custom actions
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
 import 'package:flutter/material.dart';
 // Begin custom action code
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
 
+import 'dart:convert';
 import 'package:cloud_functions/cloud_functions.dart';
 
 /// Custom Action: createPaymentIntent
 ///
-/// Cette action appelle la Firebase Function pour créer un Payment Intent Stripe
-/// Utilisez-la AVANT d'afficher le Custom Widget StripePaymentElement
+/// Appelle la Firebase Function `createPaymentIntent` pour créer un PaymentIntent Stripe.
 ///
-/// Paramètres:
-/// - amount: Montant en euros (ex: 10.50 pour 10,50€)
-/// - customerEmail: Email du client
-/// - customerName: Nom du client (optionnel)
-/// - description: Description du paiement (optionnel)
-/// - metadata: Map de métadonnées additionnelles (optionnel)
+/// Params (FlutterFlow-friendly):
+/// - amount: montant en euros (ex: 10.50)
+/// - customerEmail: email du client
+/// - customerName: nom du client (optionnel, mettre '' si non utilisé)
+/// - description: description (optionnel, mettre '' si non utilisé)
+/// - metadataJson: JSON string optionnel (ex: {"orderId":"123"}), mettre '' si non utilisé
 ///
-/// Retourne:
-/// - clientSecret: À passer au Custom Widget
-/// - paymentIntentId: ID du paiement pour référence
-/// - customerId: ID du client Stripe
+/// Return (Map):
+/// - success: bool
+/// - clientSecret: String?
+/// - paymentIntentId: String?
+/// - customerId: String?
+/// - error: String?
 ///
 /// Exemple d'utilisation dans Flutter Flow:
 /// 1. Créez un App State "clientSecret" (String)
 /// 2. Avant d'afficher le widget, appelez cette action
 /// 3. Stockez le résultat dans App State
 /// 4. Passez le clientSecret au Custom Widget
-
 Future<dynamic> createPaymentIntent(
   double amount,
-  String customerEmail, {
-  String? customerName,
-  String? description,
-  Map<String, String>? metadata,
-}) async {
+  String customerEmail,
+  String customerName,
+  String description,
+  String metadataJson,
+) async {
   try {
-    // Convertir le montant en centimes (Stripe utilise les centimes)
     final int amountInCents = (amount * 100).round();
 
-    // Préparer les données pour la Cloud Function
     final Map<String, dynamic> data = {
       'amount': amountInCents,
       'currency': 'eur',
       'customerEmail': customerEmail,
     };
 
-    if (customerName != null && customerName.isNotEmpty) {
-      data['customerName'] = customerName;
+    if (customerName.trim().isNotEmpty) {
+      data['customerName'] = customerName.trim();
     }
 
-    if (description != null && description.isNotEmpty) {
-      data['description'] = description;
+    if (description.trim().isNotEmpty) {
+      data['description'] = description.trim();
     }
 
-    if (metadata != null && metadata.isNotEmpty) {
-      data['metadata'] = metadata;
+    if (metadataJson.trim().isNotEmpty) {
+      // metadataJson doit être un JSON valide: {"key":"value"}
+      final dynamic decoded = jsonDecode(metadataJson);
+      if (decoded is Map) {
+        data['metadata'] = Map<String, dynamic>.from(decoded);
+      }
     }
 
-    // Appeler la Firebase Function
     final callable = FirebaseFunctions.instanceFor(region: 'europe-west1')
         .httpsCallable('createPaymentIntent');
 
     final response = await callable.call(data);
 
-    // Vérifier la réponse
-    if (response.data['success'] == true) {
+    final Map<String, dynamic> resp =
+        (response.data is Map) ? Map<String, dynamic>.from(response.data) : {};
+
+    if (resp['success'] == true) {
       return {
         'success': true,
-        'clientSecret': response.data['clientSecret'],
-        'paymentIntentId': response.data['paymentIntentId'],
-        'customerId': response.data['customerId'],
-      };
-    } else {
-      return {
-        'success': false,
-        'error': response.data['error'] ?? 'Erreur inconnue',
+        'clientSecret': resp['clientSecret'],
+        'paymentIntentId': resp['paymentIntentId'],
+        'customerId': resp['customerId'],
       };
     }
+
+    return {
+      'success': false,
+      'error': resp['error'] ?? 'Erreur inconnue',
+    };
   } catch (e) {
     print('Erreur lors de la création du Payment Intent: $e');
     return {
