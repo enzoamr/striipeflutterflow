@@ -90,6 +90,7 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
           ..id = _containerId
           ..style.width = '100%'
           ..style.minHeight = '1px'
+          ..style.display = 'block'
           // ✅ PAS de overflow - on laisse le contenu prendre sa taille naturelle
           ..style.overflowY = 'visible'
           ..style.overflowX = 'hidden'
@@ -215,12 +216,12 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
     }
   }
 
-  // ✅ Installation du ResizeObserver pour mesurer la hauteur réelle
+  // ✅ Polling de la hauteur réelle du Stripe element (plus fiable que ResizeObserver)
   void _installResizeObserver() {
     try {
       // Callback Dart appelé quand la hauteur change
       final callback = js.allowInterop((double height) {
-        _log('📏 ResizeObserver detected height: ${height.toStringAsFixed(1)}px');
+        _log('📏 Height detected: ${height.toStringAsFixed(1)}px');
         if (!mounted) return;
 
         setState(() {
@@ -228,7 +229,7 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
         });
       });
 
-      // Installation du ResizeObserver côté JavaScript
+      // Installation du polling côté JavaScript
       js.context['heightCallback_$viewId'] = callback;
 
       js.context.callMethod('eval', [
@@ -236,31 +237,57 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
         (function() {
           var containerId = '$_containerId';
           var viewId = '$viewId';
+          var lastHeight = 0;
+          var stableCount = 0;
 
-          var observer = new ResizeObserver(function(entries) {
-            for (var entry of entries) {
-              var height = entry.contentRect.height;
+          // Fonction qui mesure la hauteur du premier enfant
+          var measureHeight = function() {
+            var container = document.getElementById(containerId);
+            if (!container || !container.firstElementChild) {
+              return;
+            }
 
-              // Appelle le callback Dart
-              if (window['heightCallback_$viewId']) {
+            var element = container.firstElementChild;
+            var height = element.scrollHeight; // scrollHeight = hauteur totale du contenu
+
+            console.log('[StripePaymentElement] Measured height:', height + 'px');
+
+            // Si la hauteur a changé, appelle le callback
+            if (Math.abs(height - lastHeight) > 5) { // Seuil de 5px pour éviter les micro-changements
+              console.log('[StripePaymentElement] Height changed:', lastHeight + 'px -> ' + height + 'px');
+              lastHeight = height;
+              stableCount = 0;
+
+              if (window['heightCallback_$viewId'] && height > 0) {
                 window['heightCallback_$viewId'](height);
               }
+            } else if (height > 0) {
+              stableCount++;
+              // Après 5 mesures stables, on arrête le polling fréquent et on passe à un polling lent
+              if (stableCount === 5) {
+                console.log('[StripePaymentElement] Height stabilized at ' + height + 'px, slowing down polling');
+                clearInterval(window['heightInterval_$viewId']);
+                // Polling lent toutes les 2 secondes pour détecter les changements tardifs
+                window['heightInterval_$viewId'] = setInterval(measureHeight, 2000);
+              }
             }
-          });
+          };
 
-          // Observe le container
-          var container = document.getElementById(containerId);
-          if (container) {
-            observer.observe(container);
-            window['resizeObserver_$viewId'] = observer;
-          }
+          // Mesure initiale immédiate
+          setTimeout(measureHeight, 100);
+
+          // Polling rapide toutes les 100ms pendant les premières secondes
+          var interval = setInterval(measureHeight, 100);
+          window['heightInterval_$viewId'] = interval;
+
+          console.log('[StripePaymentElement] Height polling started');
         })();
       '''
       ]);
 
-      _log('✅ ResizeObserver installed');
+      _log('✅ Height polling installed');
     } catch (e) {
-      _log('⚠️ Failed to install ResizeObserver: $e');
+      _log('⚠️ Failed to install height polling: $e');
     }
   }
 
@@ -269,19 +296,21 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
       js.context.callMethod('eval', [
         '''
         (function() {
-          var observer = window['resizeObserver_$viewId'];
-          if (observer) {
-            observer.disconnect();
-            delete window['resizeObserver_$viewId'];
+          var interval = window['heightInterval_$viewId'];
+          if (interval) {
+            clearInterval(interval);
+            delete window['heightInterval_$viewId'];
           }
+
           delete window['heightCallback_$viewId'];
+          console.log('[StripePaymentElement] Height polling stopped');
         })();
       '''
       ]);
 
-      _log('✅ ResizeObserver removed');
+      _log('✅ Height polling removed');
     } catch (e) {
-      _log('⚠️ Failed to remove ResizeObserver: $e');
+      _log('⚠️ Failed to remove height polling: $e');
     }
   }
 
@@ -309,8 +338,8 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
 
         _installEventBridge();
 
-        // ✅ Installe le ResizeObserver après le mount
-        await Future.delayed(const Duration(milliseconds: 200));
+        // ✅ Installe le polling de hauteur après le mount (délai pour laisser Stripe charger)
+        await Future.delayed(const Duration(milliseconds: 300));
         _installResizeObserver();
 
         return;
@@ -454,8 +483,8 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Utilise la hauteur mesurée dynamiquement, ou une hauteur initiale minimale
-    final double displayHeight = _measuredHeight ?? 280.0; // Hauteur initiale avant mesure
+    // ✅ Utilise la hauteur mesurée dynamiquement, ou une hauteur initiale réaliste
+    final double displayHeight = _measuredHeight ?? 400.0; // Hauteur initiale avant mesure (Stripe fait ~350-400px)
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
