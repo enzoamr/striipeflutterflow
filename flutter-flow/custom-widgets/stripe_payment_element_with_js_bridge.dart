@@ -19,16 +19,16 @@ import 'dart:math' as math;
 // ✅ FIX: platformViewRegistry est maintenant dans dart:ui_web (Flutter Web récent)
 import 'dart:ui_web' as ui_web;
 
-/// ✨ VERSION AVEC JAVASCRIPT BRIDGE + FIX FOCUS ✨
+/// ✨ VERSION AVEC JAVASCRIPT BRIDGE + FIX ISOLATION ÉVÉNEMENTS ✨
 ///
-/// Cette version est identique à stripe_payment_element.dart mais ajoute la
-/// possibilité d'utiliser un bouton externe Flutter Flow
+/// Cette version résout le problème d'isolation des événements entre HtmlElementView et Flutter.
 ///
-/// NOUVEAUTÉS: - hideButton: bool → Cache le bouton intégré si true - Expose
-/// une fonction JavaScript 'triggerStripePayment' pour déclencher le paiement
-/// depuis l'extérieur - Utilisez avec la Custom Action:
-/// trigger_stripe_payment.dart
-/// - ✨ FIX FOCUS: Détecte les clics en dehors du widget et retire le focus des inputs Stripe
+/// NOUVEAUTÉS:
+/// - hideButton: bool → Cache le bouton intégré si true
+/// - Expose une fonction JavaScript 'triggerStripePayment' pour déclencher le paiement
+///   depuis l'extérieur - Utilisez avec la Custom Action: trigger_stripe_payment.dart
+/// - ✨ FIX ISOLATION: Pont d'événements DOM qui capture les clics externes au HtmlElementView
+///   et retire automatiquement le focus de TOUS les éléments HTML interactifs (inputs, buttons, etc)
 ///
 /// TOUTES LES AUTRES FONCTIONNALITÉS SONT IDENTIQUES: - ResizeObserver pour
 /// hauteur dynamique - Auto-height management - ClipRect pour éviter
@@ -75,9 +75,6 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
   Timer? _measureDebounce;
   dynamic _resizeObserver;
   dynamic _paymentElement;
-
-  // ✨ NOUVEAU: FocusNode pour gérer le focus du widget
-  final FocusNode _focusNode = FocusNode();
 
   String get _containerId => 'payment-element-container-$viewId';
   String get _containerSelector => '#$_containerId';
@@ -229,89 +226,69 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
     _resizeObserver = null;
   }
 
-  // ✨ NOUVEAU: Fonction pour blur les inputs Stripe
-  void _blurStripeInputs() {
+  // ✨ PONT D'ÉVÉNEMENTS: Solution propre au problème d'isolation HtmlElementView
+  // Le HtmlElementView bloque TOUS les événements entre Flutter et HTML.
+  // Cette fonction installe un listener global au niveau DOM qui :
+  // 1. Capture TOUS les clics (phase capture, avant propagation)
+  // 2. Vérifie si le clic est en dehors du container HTML
+  // 3. Si oui, blur automatiquement l'élément actif (input, button, etc)
+  // Fonctionne pour TOUS les éléments interactifs, pas juste les inputs.
+  void _installEventBridge() {
     try {
-      // Retire le focus de tous les éléments actifs dans le container Stripe
-      final container = html.document.querySelector(_containerSelector);
-      if (container != null) {
-        final activeElement = html.document.activeElement;
-
-        // Vérifie si l'élément actif est à l'intérieur du container Stripe
-        if (activeElement != null && container.contains(activeElement)) {
-          try {
-            (activeElement as dynamic).blur();
-            _log('✅ Blur applied to active Stripe input');
-          } catch (e) {
-            _log('⚠️ Could not blur active element: $e');
-          }
-        }
-      }
-    } catch (e) {
-      _log('⚠️ Error in _blurStripeInputs: $e');
-    }
-  }
-
-  // ✨ NOUVEAU: Installe un listener global pour détecter les clics externes
-  void _installGlobalClickListener() {
-    try {
-      // Expose la fonction de blur en JavaScript
-      js.context['blurStripeInputs_$viewId'] = js.allowInterop(() {
-        _blurStripeInputs();
-      });
-
-      // Ajoute un listener de clic au niveau du document
       js.context.callMethod('eval', ['''
         (function() {
           var containerId = '$_containerId';
-          var blurFunctionName = 'blurStripeInputs_$viewId';
 
-          // Handler pour les clics
-          var clickHandler = function(event) {
+          // Handler universel pour tous les événements de pointeur
+          var pointerHandler = function(event) {
             var container = document.getElementById(containerId);
             if (!container) return;
 
-            // Vérifie si le clic est en dehors du container Stripe
             var target = event.target;
+
+            // Si le clic/touch est en dehors du container HTML
             if (!container.contains(target)) {
-              // Clic en dehors du container Stripe
-              if (window[blurFunctionName]) {
-                window[blurFunctionName]();
+              var activeElement = document.activeElement;
+
+              // Si un élément à l'intérieur du container a le focus
+              if (activeElement && container.contains(activeElement)) {
+                activeElement.blur();
               }
             }
           };
 
-          // Ajoute le listener
-          document.addEventListener('click', clickHandler, true);
+          // Écoute en phase capture (avant que l'événement atteigne la cible)
+          // pour intercepter TOUS les clics, même ceux gérés par Flutter
+          document.addEventListener('pointerdown', pointerHandler, true);
+          document.addEventListener('touchstart', pointerHandler, true);
 
           // Stocke le handler pour le cleanup
-          window['clickHandler_$viewId'] = clickHandler;
+          window['eventBridge_$viewId'] = pointerHandler;
         })();
       ''']);
 
-      _log('✅ Global click listener installed');
+      _log('✅ Event bridge installed (fixes HtmlElementView isolation)');
     } catch (e) {
-      _log('⚠️ Failed to install global click listener: $e');
+      _log('⚠️ Failed to install event bridge: $e');
     }
   }
 
-  // ✨ NOUVEAU: Retire le listener global
-  void _removeGlobalClickListener() {
+  void _removeEventBridge() {
     try {
       js.context.callMethod('eval', ['''
         (function() {
-          var handler = window['clickHandler_$viewId'];
+          var handler = window['eventBridge_$viewId'];
           if (handler) {
-            document.removeEventListener('click', handler, true);
-            delete window['clickHandler_$viewId'];
+            document.removeEventListener('pointerdown', handler, true);
+            document.removeEventListener('touchstart', handler, true);
+            delete window['eventBridge_$viewId'];
           }
         })();
       ''']);
 
-      js.context.deleteProperty('blurStripeInputs_$viewId');
-      _log('✅ Global click listener removed');
+      _log('✅ Event bridge removed');
     } catch (e) {
-      _log('⚠️ Failed to remove global click listener: $e');
+      _log('⚠️ Failed to remove event bridge: $e');
     }
   }
 
@@ -338,8 +315,8 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
         });
         _log('✅ JavaScript Bridge exposé: triggerStripePayment()');
 
-        // ✨ NOUVEAU: Installe le listener global pour les clics externes
-        _installGlobalClickListener();
+        // ✨ PONT D'ÉVÉNEMENTS: Résout l'isolation HtmlElementView <-> Flutter
+        _installEventBridge();
 
         _debouncedMeasure();
         Future.delayed(const Duration(milliseconds: 220), _measureHeightNow);
@@ -504,129 +481,117 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
     final double elementHeight =
         widget.height ?? (_measuredElementHeight ?? 360.0);
 
-    // ✨ NOUVEAU: Wrapper avec Listener pour capturer les clics locaux
-    return Listener(
-      behavior: HitTestBehavior.translucent,
-      onPointerDown: (event) {
-        // Donne le focus au widget Flutter quand on clique dessus
-        // Ceci aide à mieux gérer le focus entre Flutter et HTML
-        _focusNode.requestFocus();
-      },
-      child: Focus(
-        focusNode: _focusNode,
-        child: ClipRRect(
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: widget.width,
+        // ✅ si ton parent ne contraint pas, au moins on empêche de déborder visuellement
+        decoration: BoxDecoration(
+          color: Colors.white,
           borderRadius: BorderRadius.circular(8),
-          child: Container(
-            width: widget.width,
-            // ✅ si ton parent ne contraint pas, au moins on empêche de déborder visuellement
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade300),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ✅ IMPORTANT: on clippe aussi la partie HTML
+            ClipRect(
+              child: SizedBox(
+                height: elementHeight,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: HtmlElementView(viewType: viewId),
+                ),
+              ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // ✅ IMPORTANT: on clippe aussi la partie HTML
-                ClipRect(
-                  child: SizedBox(
-                    height: elementHeight,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: HtmlElementView(viewType: viewId),
-                    ),
+
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline,
+                          color: Colors.red.shade700, size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _errorMessage!,
+                          style: TextStyle(
+                              color: Colors.red.shade700, fontSize: 14),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              ),
 
-                if (_errorMessage != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.red.shade200),
+            // ✨ NOUVEAU: Bouton visible seulement si hideButton = false
+            if (!widget.hideButton)
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: _isProcessing ? null : _handlePayment,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: widget.buttonColor,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.error_outline,
-                              color: Colors.red.shade700, size: 20),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _errorMessage!,
-                              style: TextStyle(
-                                  color: Colors.red.shade700, fontSize: 14),
+                      elevation: 0,
+                    ),
+                    child: _isProcessing
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
                             ),
+                          )
+                        : Text(
+                            widget.buttonText,
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w600),
                           ),
-                        ],
+                  ),
+                ),
+              ),
+
+            // ✨ NOUVEAU: Indicateur de chargement si bouton caché
+            if (widget.hideButton && _isProcessing)
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      'Traitement du paiement...',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
                       ),
                     ),
-                  ),
-
-                // ✨ NOUVEAU: Bouton visible seulement si hideButton = false
-                if (!widget.hideButton)
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton(
-                        onPressed: _isProcessing ? null : _handlePayment,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: widget.buttonColor,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: _isProcessing
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white),
-                                ),
-                              )
-                            : Text(
-                                widget.buttonText,
-                                style: const TextStyle(
-                                    fontSize: 16, fontWeight: FontWeight.w600),
-                              ),
-                      ),
-                    ),
-                  ),
-
-                // ✨ NOUVEAU: Indicateur de chargement si bouton caché
-                if (widget.hideButton && _isProcessing)
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          'Traitement du paiement...',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
+                  ],
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -637,19 +602,16 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
     _measureDebounce?.cancel();
     _disposeResizeObserver();
 
-    // ✨ NOUVEAU: Retire le listener global avant de disposer
-    _removeGlobalClickListener();
+    // ✨ Retire le pont d'événements avant de disposer
+    _removeEventBridge();
 
     js.context.deleteProperty('stripeInstance_$viewId');
     js.context.deleteProperty('elementsInstance_$viewId');
-    js.context.deleteProperty('triggerStripePayment'); // ✨ Nettoyage JS bridge
+    js.context.deleteProperty('triggerStripePayment');
 
     try {
       _paymentElement?.callMethod('off', ['change']);
     } catch (_) {}
-
-    // ✨ NOUVEAU: Dispose le FocusNode
-    _focusNode.dispose();
 
     super.dispose();
   }
