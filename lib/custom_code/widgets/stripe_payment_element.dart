@@ -89,6 +89,7 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
         final element = html.DivElement()
           ..id = _containerId
           ..style.width = '100%'
+          ..style.height = '100%' // ✅ Prend 100% de la hauteur du parent Flutter
           ..style.minHeight = '1px'
           ..style.display = 'block'
           // ✅ PAS de overflow - on laisse le contenu prendre sa taille naturelle
@@ -225,7 +226,7 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
         if (!mounted) return;
 
         setState(() {
-          _measuredHeight = height + 32; // +32 pour le padding (16*2)
+          _measuredHeight = height;
         });
       });
 
@@ -499,13 +500,13 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
           mainAxisSize: MainAxisSize.min, // ✅ S'adapte au contenu
           children: [
             // ✅ Le HTML prend la hauteur mesurée dynamiquement
-            AnimatedSize(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              child: SizedBox(
-                height: displayHeight,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                child: SizedBox(
+                  height: displayHeight,
                   child: HtmlElementView(viewType: viewId),
                 ),
               ),
