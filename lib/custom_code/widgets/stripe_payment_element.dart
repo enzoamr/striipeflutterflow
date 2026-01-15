@@ -217,7 +217,7 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
     }
   }
 
-  // ✅ Polling de la hauteur réelle du Stripe element (plus fiable que ResizeObserver)
+  // ✅ ResizeObserver - API native du navigateur pour observer les changements de taille
   void _installResizeObserver() {
     try {
       // Callback Dart appelé quand la hauteur change
@@ -230,65 +230,47 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
         });
       });
 
-      // Installation du polling côté JavaScript
       js.context['heightCallback_$viewId'] = callback;
 
       js.context.callMethod('eval', [
         '''
         (function() {
           var containerId = '$_containerId';
-          var viewId = '$viewId';
-          var lastHeight = 0;
-          var stableCount = 0;
 
-          // Fonction qui mesure la hauteur du premier enfant
-          var measureHeight = function() {
+          // Attend que le container et son premier enfant existent
+          var checkAndObserve = function() {
             var container = document.getElementById(containerId);
             if (!container || !container.firstElementChild) {
+              setTimeout(checkAndObserve, 50);
               return;
             }
 
-            var element = container.firstElementChild;
-            var height = element.scrollHeight; // scrollHeight = hauteur totale du contenu
+            var stripeElement = container.firstElementChild;
 
-            console.log('[StripePaymentElement] Measured height:', height + 'px');
+            // ResizeObserver observe automatiquement les changements de taille
+            var observer = new ResizeObserver(function(entries) {
+              var entry = entries[0];
+              var height = entry.contentRect.height;
 
-            // Si la hauteur a changé, appelle le callback
-            if (Math.abs(height - lastHeight) > 5) { // Seuil de 5px pour éviter les micro-changements
-              console.log('[StripePaymentElement] Height changed:', lastHeight + 'px -> ' + height + 'px');
-              lastHeight = height;
-              stableCount = 0;
-
-              if (window['heightCallback_$viewId'] && height > 0) {
+              if (height > 0 && window['heightCallback_$viewId']) {
                 window['heightCallback_$viewId'](height);
               }
-            } else if (height > 0) {
-              stableCount++;
-              // Après 5 mesures stables, on arrête le polling fréquent et on passe à un polling lent
-              if (stableCount === 5) {
-                console.log('[StripePaymentElement] Height stabilized at ' + height + 'px, slowing down polling');
-                clearInterval(window['heightInterval_$viewId']);
-                // Polling lent toutes les 2 secondes pour détecter les changements tardifs
-                window['heightInterval_$viewId'] = setInterval(measureHeight, 2000);
-              }
-            }
+            });
+
+            observer.observe(stripeElement);
+            window['resizeObserver_$viewId'] = observer;
+
+            console.log('[StripePaymentElement] ResizeObserver active');
           };
 
-          // Mesure initiale immédiate
-          setTimeout(measureHeight, 100);
-
-          // Polling rapide toutes les 100ms pendant les premières secondes
-          var interval = setInterval(measureHeight, 100);
-          window['heightInterval_$viewId'] = interval;
-
-          console.log('[StripePaymentElement] Height polling started');
+          checkAndObserve();
         })();
       '''
       ]);
 
-      _log('✅ Height polling installed');
+      _log('✅ ResizeObserver installed');
     } catch (e) {
-      _log('⚠️ Failed to install height polling: $e');
+      _log('⚠️ Failed to install ResizeObserver: $e');
     }
   }
 
@@ -297,21 +279,19 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
       js.context.callMethod('eval', [
         '''
         (function() {
-          var interval = window['heightInterval_$viewId'];
-          if (interval) {
-            clearInterval(interval);
-            delete window['heightInterval_$viewId'];
+          var observer = window['resizeObserver_$viewId'];
+          if (observer) {
+            observer.disconnect();
+            delete window['resizeObserver_$viewId'];
           }
-
           delete window['heightCallback_$viewId'];
-          console.log('[StripePaymentElement] Height polling stopped');
         })();
       '''
       ]);
 
-      _log('✅ Height polling removed');
+      _log('✅ ResizeObserver removed');
     } catch (e) {
-      _log('⚠️ Failed to remove height polling: $e');
+      _log('⚠️ Failed to remove ResizeObserver: $e');
     }
   }
 
@@ -339,8 +319,7 @@ class _StripePaymentElementState extends State<StripePaymentElement> {
 
         _installEventBridge();
 
-        // ✅ Installe le polling de hauteur après le mount (délai pour laisser Stripe charger)
-        await Future.delayed(const Duration(milliseconds: 300));
+        // ✅ Installe le ResizeObserver (il attend automatiquement que Stripe charge)
         _installResizeObserver();
 
         return;
